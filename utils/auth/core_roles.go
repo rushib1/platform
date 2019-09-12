@@ -345,7 +345,7 @@ func CoreRolePermissions() map[string][]string {
 		"view-visit",
 	}
 	rolePermissions["vehicle"] = []string{
-		" create-rental-packages",
+		"create-rental-packages",
 		"create-vehicle-type",
 		"delete-rental-packages",
 		"delete-vehicle-type",

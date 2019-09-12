@@ -22,6 +22,7 @@ var (
 		Endpoint:     facebook.Endpoint,
 	}
 	oauthStateString = "thisshouldberandom"
+	graphqlEndpoint  = "https://graph.facebook.com"
 )
 
 //const htmlIndex = `<html><body>
@@ -87,4 +88,28 @@ func handleFacebookAuth(w http.ResponseWriter, r *http.Request) {
 	log.Printf("parseResponseBody: %s\n", string(response))
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func GetUserDataFromFacebookUsingAccessToken(accessToken string) ([]byte, error) {
+	req, err := http.NewRequest("GET", graphqlEndpoint+"/me", nil)
+	client := &http.Client{}
+
+	if err != nil {
+		log.Printf("Get: %s\n", err)
+		return nil, err
+	}
+	// Setting get parameters
+	params := req.URL.Query()
+	params.Add("fields", "email")
+	params.Add("access_token", accessToken)
+
+	req.URL.RawQuery = params.Encode()
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("")
+	}
+
+	defer resp.Body.Close()
+	return ioutil.ReadAll(resp.Body)
 }

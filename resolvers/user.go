@@ -8,13 +8,19 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"reflect"
+	"strings"
+	"time"
+
 	"github.com/dgrijalva/jwt-go"
 	"github.com/jinzhu/copier"
 	log "github.com/sirupsen/logrus"
 	"github.com/tribehq/platform/lib/audit_log"
 	"github.com/tribehq/platform/lib/database"
 	"github.com/tribehq/platform/lib/msg91"
+	"github.com/tribehq/platform/lib/oauth2"
 	"github.com/tribehq/platform/models"
 	"github.com/tribehq/platform/utils"
 	"github.com/tribehq/platform/utils/auth"
@@ -23,9 +29,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
-	"reflect"
-	"strings"
-	"time"
 )
 
 //BlockUser returns a block user by ID
@@ -418,8 +421,43 @@ func (r *mutationResolver) VerifyLoginOtp(ctx context.Context, countryCode strin
 func (r *mutationResolver) LoginWithSocialAuth(ctx context.Context, provider models.SocialAuthProvder, accessToken string, accessSecret *string) (*models.AuthPayload, error) {
 	switch provider {
 	case "FACEBOOK":
-		//TODO implement facebook login
-		return nil, errors.New("facebook to be implemented")
+		var user models.User
+		body, err := oauth2.GetUserDataFromFacebookUsingAccessToken(accessToken)
+		db := database.ConnectMongo()
+		if err != nil {
+			return nil, err
+		}
+		var userData map[string]interface{}
+		if err = json.Unmarshal(body, &userData); err != nil {
+			return nil, err
+		}
+
+		filter := bson.D{{"email", userData["email"].(string)}}
+		if err := db.Collection(models.UsersCollection).FindOne(context.TODO(), filter).Decode(&user); err != nil {
+			if err != mongo.ErrNoDocuments {
+				log.Errorln(err)
+				return nil, errors.New("internal server error")
+			}
+			return nil, errors.New("invalid mobile number")
+		}
+
+		token := jwt.New(jwt.SigningMethodHS256)
+		// Set claims
+		claims := token.Claims.(jwt.MapClaims)
+		claims["id"] = user.ID
+		claims["exp"] = time.Now().Add(time.Hour * 1440).Unix()
+		// Generate encoded token and send it as response.
+		t, err := token.SignedString([]byte("jwtsecret"))
+		if err != nil {
+			return nil, errors.New("internal server error")
+		}
+		//utils.SendLoginMail(db, utils.LoginTemplate{Name: user.FirstName, IPAddress: ctx.Request().RemoteAddr, Client: ctx.Request().UserAgent(), TimeStamp: time.Now().Format(utils.TimeLayout)}, utils.EmailRequest{To: user.Email, From: utils.SUPPORT_EMAIL})
+		authPayload := &models.AuthPayload{
+			Token: t,
+			User:  &user,
+		}
+		return authPayload, nil
+
 	case "GOOGLE":
 		//TODO implement google login
 		return nil, errors.New("google to be implemented")
