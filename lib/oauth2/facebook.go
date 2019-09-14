@@ -5,6 +5,7 @@
 package oauth2
 
 import (
+	"errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/facebook"
@@ -22,8 +23,10 @@ var (
 		Endpoint:     facebook.Endpoint,
 	}
 	oauthStateString = "thisshouldberandom"
-	graphqlEndpoint  = "https://graph.facebook.com"
 )
+
+const facebookEndpoint = "https://graph.facebook.com"
+const facebookUserInfoEndpoint = facebookEndpoint + "/me"
 
 //const htmlIndex = `<html><body>
 //Logged in with <a href="/login">facebook</a>
@@ -91,7 +94,7 @@ func handleFacebookAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetUserDataFromFacebookUsingAccessToken(accessToken string) ([]byte, error) {
-	req, err := http.NewRequest("GET", graphqlEndpoint+"/me", nil)
+	req, err := http.NewRequest("GET", facebookUserInfoEndpoint, nil)
 	client := &http.Client{}
 
 	if err != nil {
@@ -107,7 +110,11 @@ func GetUserDataFromFacebookUsingAccessToken(accessToken string) ([]byte, error)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("")
+		log.Errorln("Unable to process SocialAuth %s", err)
+		return nil, err
+	} else if resp.StatusCode != 200 {
+		log.Errorln("Unable to process SocialAuth %s", http.StatusText(resp.StatusCode))
+		return nil, errors.New("Unable to process SocialAuth %s" + http.StatusText(resp.StatusCode))
 	}
 
 	defer resp.Body.Close()

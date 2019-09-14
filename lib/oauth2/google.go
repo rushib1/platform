@@ -8,11 +8,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -36,6 +37,8 @@ var googleOauthConfig = &oauth2.Config{
 	Endpoint:     google.Endpoint,
 }
 
+const googleEndpoint = "https://www.googleapis.com"
+const googleUserInfoEndpoint = googleEndpoint + "/userinfo/v2/me"
 const oauthGoogleUrlAPI = "https://www.googleapis.com/oauth2/v2/userinfo?access_token="
 
 func oauthGoogleLogin(w http.ResponseWriter, r *http.Request) {
@@ -103,4 +106,31 @@ func getUserDataFromGoogle(code string) ([]byte, error) {
 		return nil, fmt.Errorf("failed read response: %s", err.Error())
 	}
 	return contents, nil
+}
+
+func GetUserDataFromGoogleUsingAccessToken(accessToken string) ([]byte, error) {
+	req, err := http.NewRequest("GET", googleUserInfoEndpoint, nil)
+	client := &http.Client{}
+
+	if err != nil {
+		log.Printf("Get: %s\n", err)
+		return nil, err
+	}
+	// Setting get parameters
+	params := req.URL.Query()
+	params.Add("key", accessToken)
+
+	req.URL.RawQuery = params.Encode()
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Errorln("Unable to process SocialAuth %s", err)
+		return nil, err
+	} else if resp.StatusCode != 200 {
+		log.Errorln("Unable to process SocialAuth %s", http.StatusText(resp.StatusCode))
+		return nil, errors.New("Unable to process SocialAuth %s" + http.StatusText(resp.StatusCode))
+	}
+
+	defer resp.Body.Close()
+	return ioutil.ReadAll(resp.Body)
 }

@@ -419,57 +419,60 @@ func (r *mutationResolver) VerifyLoginOtp(ctx context.Context, countryCode strin
 
 //LoginWithSocialAuth lets you login using social media
 func (r *mutationResolver) LoginWithSocialAuth(ctx context.Context, provider models.SocialAuthProvder, accessToken string, accessSecret *string) (*models.AuthPayload, error) {
+	var (
+		user models.User
+		body []byte
+		err  error
+	)
 	switch provider {
 	case "FACEBOOK":
-		var user models.User
-		body, err := oauth2.GetUserDataFromFacebookUsingAccessToken(accessToken)
-		db := database.ConnectMongo()
-		if err != nil {
-			return nil, err
-		}
-		var userData map[string]interface{}
-		if err = json.Unmarshal(body, &userData); err != nil {
-			return nil, err
-		}
+		body, err = oauth2.GetUserDataFromFacebookUsingAccessToken(accessToken)
+	case "GOOGLE":
+		body, err = oauth2.GetUserDataFromGoogleUsingAccessToken(accessToken)
+	case "MICROSOFT":
+		body, err = oauth2.GetUserDataFromMicrosoftUsingAccessToken(accessToken)
+	case "AMAZON":
+		body, err = oauth2.GetUserDataFromAmazonUsingAccessToken(accessToken)
+	default:
+		body, err = nil, errors.New("invalid oauth2 provider")
+	}
 
-		filter := bson.D{{"email", userData["email"].(string)}}
-		if err := db.Collection(models.UsersCollection).FindOne(context.TODO(), filter).Decode(&user); err != nil {
-			if err != mongo.ErrNoDocuments {
-				log.Errorln(err)
-				return nil, errors.New("internal server error")
-			}
-			return nil, errors.New("invalid mobile number")
-		}
+	if err != nil {
+		log.Errorln("Unable to process SocialAuth %s", err)
+		return nil, err
+	}
 
-		token := jwt.New(jwt.SigningMethodHS256)
-		// Set claims
-		claims := token.Claims.(jwt.MapClaims)
-		claims["id"] = user.ID
-		claims["exp"] = time.Now().Add(time.Hour * 1440).Unix()
-		// Generate encoded token and send it as response.
-		t, err := token.SignedString([]byte("jwtsecret"))
-		if err != nil {
+	db := database.ConnectMongo()
+	var userData map[string]interface{}
+	if err = json.Unmarshal(body, &userData); err != nil {
+		return nil, err
+	}
+
+	filter := bson.D{{"email", userData["email"].(string)}}
+	if err := db.Collection(models.UsersCollection).FindOne(context.TODO(), filter).Decode(&user); err != nil {
+		if err != mongo.ErrNoDocuments {
+			log.Errorln(err)
 			return nil, errors.New("internal server error")
 		}
-		//utils.SendLoginMail(db, utils.LoginTemplate{Name: user.FirstName, IPAddress: ctx.Request().RemoteAddr, Client: ctx.Request().UserAgent(), TimeStamp: time.Now().Format(utils.TimeLayout)}, utils.EmailRequest{To: user.Email, From: utils.SUPPORT_EMAIL})
-		authPayload := &models.AuthPayload{
-			Token: t,
-			User:  &user,
-		}
-		return authPayload, nil
-
-	case "GOOGLE":
-		//TODO implement google login
-		return nil, errors.New("google to be implemented")
-	case "MICROSOFT":
-		//TODO implement google login
-		return nil, errors.New("microsoft to be implemented")
-	case "AMAZON":
-		//TODO implement google login
-		return nil, errors.New("amazon to be implemented")
-	default:
-		return nil, errors.New("invalid oauth2 provider")
+		return nil, errors.New("invalid email id")
 	}
+
+	token := jwt.New(jwt.SigningMethodHS256)
+	// Set claims
+	claims := token.Claims.(jwt.MapClaims)
+	claims["id"] = user.ID
+	claims["exp"] = time.Now().Add(time.Hour * 1440).Unix()
+	// Generate encoded token and send it as response.
+	t, err := token.SignedString([]byte("jwtsecret"))
+	if err != nil {
+		return nil, errors.New("internal server error")
+	}
+
+	authPayload := &models.AuthPayload{
+		Token: t,
+		User:  &user,
+	}
+	return authPayload, nil
 }
 
 //DeleteUser deletes an existing user
